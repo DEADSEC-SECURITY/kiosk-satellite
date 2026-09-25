@@ -35,6 +35,9 @@ class OwwPipeline {
   static const melWindow = 76;
   static const embeddingDim = 96;
   static const embeddingWindow = 16;
+  // 10 chunks replace all 76 mel frames, then 15 more replace the other
+  // embeddings. Synthetic startup history is never evidence of a wake word.
+  static const liveHistoryChunks = (melWindow + 7) ~/ 8 + embeddingWindow - 1;
   static const melPrefixSamples = 160 * 3; // 480
   static const _melBufferMax = 970;
 
@@ -68,6 +71,7 @@ class OwwPipeline {
   /// on silence after every turn. Noise is what openWakeWord itself pre-fills
   /// with (`feature_buffer = self._get_embeddings(noise)`).
   Float32List? _warmClassifierInput;
+  int _liveChunks = 0;
 
   /// Match openWakeWord's `melspectrogram_buffer = np.ones((76, 32))`.
   void _initMelBuffer() {
@@ -79,6 +83,7 @@ class OwwPipeline {
   /// it never sees zero padding before real speech arrives. Deterministic, so
   /// two runs warm to the same state.
   void warmup() {
+    _liveChunks = 0;
     _audioHistory.fillRange(0, _audioHistory.length, 0);
     _initMelBuffer();
 
@@ -109,6 +114,7 @@ class OwwPipeline {
     final emb = _runFrontend(_scaled);
     if (emb == null) return null;
     _appendEmbedding(emb);
+    if (++_liveChunks < liveHistoryChunks) return null;
     return _classifierInput;
   }
 
@@ -178,6 +184,7 @@ class OwwPipeline {
   /// Wipe per-stream history so the next chunk is treated as a cold start,
   /// restoring the noise-warmed classifier window rather than zeroing it.
   void reset() {
+    _liveChunks = 0;
     _audioHistory.fillRange(0, _audioHistory.length, 0);
     _initMelBuffer();
     final warm = _warmClassifierInput;

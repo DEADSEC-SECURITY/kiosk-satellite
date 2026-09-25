@@ -34,6 +34,17 @@ trial identity. Replace a trial with a newly built trial APK when needed.
 
 ## Targeted checks
 
+openWakeWord waits for two seconds of real microphone input after startup or
+reset before classifying. This replaces the synthetic mel and embedding history
+that can otherwise produce a high wake score on silence. Wake words spoken in
+this initial period do not trigger. The recording still contains only real input
+from the current listening period; no padding or earlier Assist audio is added.
+
+`test/oww_startup_test.dart` can exercise actual ONNX sessions when
+`OWW_TEST_RESOURCES` points to the mel/embedding directory and
+`OWW_TEST_CLASSIFIER` points to an Atlas classifier. It covers startup and repeated
+resets; without these optional local model files that test is explicitly skipped.
+
 `flutter test test/wake_recordings_test.dart test/wake_recording_commands_test.dart
 test/isolate_engine_test.dart test/js_api_test.dart` exercises exact PCM retention,
 sample-aligned snapshots, stale/gapped history, unchanged Assist streaming,
