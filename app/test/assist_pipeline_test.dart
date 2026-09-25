@@ -76,6 +76,7 @@ void main() {
 
     final run = await commands.execute('pipelineRun', const {
       'entity_id': 'assist_satellite.office_tablet',
+      'runtime_id': '5f084f35-dcef-4862-9cf9-bc5e19ac0f9a',
       'start_stage': 'stt',
       'end_stage': 'tts',
       'sample_rate': 16000,
@@ -88,6 +89,8 @@ void main() {
     expect(server.authedTokens, ['tok']);
     final sub = await server.nextJson((m) => m['type'] == 'voice_satellite/run_pipeline');
     expect(sub['entity_id'], 'assist_satellite.office_tablet');
+    expect(sub['runtime_id'], '5f084f35-dcef-4862-9cf9-bc5e19ac0f9a',
+        reason: 'native transport must retain the page runtime claim');
     expect(sub['start_stage'], 'stt');
     expect(sub['wake_word_phrase'], 'Okay Nabu');
     expect(sub.containsKey('conversation_id'), isFalse,
@@ -163,6 +166,8 @@ void main() {
     });
     final runId = (run.data as Map)['runId'] as String;
     final sub = await server.nextJson((m) => m['type'] == 'voice_satellite/run_pipeline');
+    expect(sub.containsKey('runtime_id'), isFalse,
+        reason: 'legacy pages without a runtime claim must not send a null claim');
     server.sendEvent(sub['id'] as int, {'type': 'init', 'handler_id': 3});
 
     await commands.execute('pipelineStartSending', {'runId': runId});

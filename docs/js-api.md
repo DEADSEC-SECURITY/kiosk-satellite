@@ -157,6 +157,8 @@ This handles the output half of the audio handoff. The web page passes a URL ove
 
 The app is capable of running the transport for a Voice Satellite assist pipeline turn natively. It subscribes to `voice_satellite/run_pipeline` on its own authenticated Home Assistant websocket and uploads raw microphone PCM as binary frames. This means that during a voice turn, no audio data crosses the JavaScript bridge in either direction. The web page retains control over everything else: the session policy, the visual overlay UI, and every single pipeline event (which the app forwards verbatim). The native audio methods perfectly mirror the page's own send, buffer, and mute choreography, ensuring the chime mute window, cross device deduplication, and seamless one shot buffering operate exactly as they normally would.
 
+When the page supplies `runtime_id`, `pipelineRun` forwards it unchanged so Home Assistant can associate this separate audio connection with the page's station claim. The page and native connection must authenticate as the same Home Assistant user. Older pages may omit the field.
+
 This delegation negotiates completely transparently, just like the wake word handoff. A page that knows these methods will use them; an older page will stick to the browser path, requiring zero configuration. If the app cannot take the turn (e.g., it is not configured for Home Assistant, the wake word engine is down, or the remote diagnostic kill switch `vs.native_pipeline` is flipped off), all methods will fail (resolving to `false`). Voice Satellite will then gracefully fall back to running the pipeline over the dashboard's own connection.
 
 | Method | Returns | Description |

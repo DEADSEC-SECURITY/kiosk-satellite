@@ -201,6 +201,7 @@ class AssistPipelineManager extends Manager {
             'audio upload happens natively and never touches the page.',
         params: const {
           'entity_id': 'satellite entity the run belongs to',
+          'runtime_id': 'station runtime claim from the page, forwarded unchanged',
           'start_stage': 'wake_word | stt | intent',
           'end_stage': 'usually tts',
           'sample_rate': 'STT sample rate (16000)',
@@ -377,6 +378,7 @@ class AssistPipelineManager extends Manager {
       'type': 'voice_satellite/run_pipeline',
       for (final key in const [
         'entity_id',
+        'runtime_id',
         'start_stage',
         'end_stage',
         'sample_rate',
