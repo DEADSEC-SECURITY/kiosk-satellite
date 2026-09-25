@@ -313,6 +313,9 @@ class _MwwWorker {
           'type': WakeMsg.detection,
           'id': k.id,
           'wakeWord': k.wakeWord,
+          'detectionSample': _absSamples,
+          'score': k.gate.windowMean,
+          'threshold': k.gate.cutoff,
           // A window classifier knows only that the wake word happened
           // recently, not where it ended, so the stream starts at the detection
           // instant. Never replays the wake word: detection cannot precede it.

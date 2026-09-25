@@ -7,6 +7,7 @@ import 'package:kiosk_satellite/core/logging.dart';
 import 'package:kiosk_satellite/core/permissions.dart';
 import 'package:kiosk_satellite/managers/wake_word/engine.dart';
 import 'package:kiosk_satellite/managers/wake_word/isolate_engine.dart';
+import 'package:kiosk_satellite/managers/wake_word/recordings.dart';
 
 /// The half of the wake path every engine shares: the pre-roll ring, the sample
 /// clock it shares with the compute isolate, and the audio stream delegated to
@@ -335,6 +336,84 @@ void main() {
       expect(engine.running, isTrue, reason: 'but the mic stays open');
     });
 
+    test(
+      'recording is opt-in, untrimmed and independent of the Assist sink',
+      () async {
+        final captures = <WakeRecordingCapture>[];
+        await start();
+        await feed(1280, value: 1);
+        expect(engine.captureWakeWordRecording(), isNull);
+        engine.configureWakeWordRecording(
+          enabled: true,
+          onCapture: captures.add,
+        );
+        final turnAudio = <Uint8List>[];
+        await engine.startAudioStream((chunk, _) => turnAudio.add(chunk));
+        turnAudio.clear();
+        await feed(1280, value: 7);
+        await engine.fireDetection(wakeEndSample: 2560);
+        expect(captures, hasLength(1));
+        expect(captures.single.pcm, pcm(1280, value: 7));
+        expect(captures.single.metadata['capture_kind'], 'wake');
+        expect(captures.single.metadata['engine'], 'vsWakeWord');
+        expect(captures.single.metadata['model'], 'okay_nabu');
+        // Capture precedes the normal pause/trim. The existing sink still gets
+        // the identical samples, and keeps receiving command audio afterwards.
+        expect(turnAudio.single, pcm(1280, value: 7));
+        await feed(1280, value: 9);
+        expect(turnAudio.last, pcm(1280, value: 9));
+        expect(engine.captureWakeWordRecording(), isNull);
+        await engine.resumeDetection();
+        expect(
+          engine.captureWakeWordRecording(),
+          isNull,
+          reason: 'paused-turn audio is never retained as listening history',
+        );
+        await feed(1280, value: 11);
+        final missed = engine.captureWakeWordRecording()!;
+        expect(missed.pcm, pcm(1280, value: 11));
+        expect(missed.metadata['capture_kind'], 'missed');
+        expect(missed.metadata, isNot(contains('score')));
+      },
+    );
+
+    test('disable clears history and prevents later snapshots of it', () async {
+      await start();
+      engine.configureWakeWordRecording(enabled: true);
+      await feed(1280);
+      expect(engine.captureWakeWordRecording(), isNotNull);
+      engine.configureWakeWordRecording(enabled: false);
+      engine.configureWakeWordRecording(enabled: true);
+      expect(engine.captureWakeWordRecording(), isNull);
+      await feed(1280);
+      expect(engine.captureWakeWordRecording(), isNotNull);
+      await engine.stop();
+      expect(engine.captureWakeWordRecording(), isNull);
+    });
+
+    test(
+      'stop detections and tester/injected input never create wake clips',
+      () async {
+        final captures = <WakeRecordingCapture>[];
+        engine.configureWakeWordRecording(
+          enabled: true,
+          onCapture: captures.add,
+        );
+        await start();
+        await feed(1280);
+        engine.isolate.detect(wakeEndSample: 1280, stop: true);
+        await settle();
+        expect(captures, isEmpty);
+        engine.setTelemetry(true, tester: true);
+        await feed(1280);
+        expect(engine.captureWakeWordRecording(), isNull);
+        engine.setTelemetry(false);
+        await engine.injectAudio(pcm(1280, value: 99));
+        await engine.fireDetection(wakeEndSample: 3840);
+        expect(captures, isEmpty);
+      },
+    );
+
     test('an armed stop word keeps feeding the isolate through a turn',
         () async {
       engine.payload = WakeModelPayload(
@@ -464,15 +543,19 @@ void main() {
       // stopped its own browser detection because we said we were covered —
       // heard nothing for the rest of the session.
       final failures = <EngineFailure>[];
+      final failureReported = Completer<void>();
       await engine.start(
         config: _config,
         onDetection: (m) async => engine.detections.add(m),
-        onFailure: (kind, _) => failures.add(kind),
+        onFailure: (kind, _) {
+          failures.add(kind);
+          failureReported.complete();
+        },
       );
       expect(engine.running, isTrue);
 
       mic.addError(Exception('AudioRecord init failed'));
-      await settle();
+      await failureReported.future.timeout(const Duration(seconds: 5));
 
       expect(failures, [EngineFailure.micLost]);
       expect(engine.running, isFalse,
@@ -585,10 +668,11 @@ class _FakeIsolate {
   void crash() =>
       _toMain?.send(['Invalid argument(s): -1', '#0 somewhere (file.dart:1)']);
 
-  void detect({required int? wakeEndSample}) => _toMain?.send({
+  void detect({required int? wakeEndSample, bool stop = false}) => _toMain?.send({
         'type': WakeMsg.detection,
         'id': 'okay_nabu',
         'wakeWord': 'Okay Nabu',
+        if (stop) 'stop': true,
         // Omitted entirely by an engine that cannot align its match, which is
         // not the same as sending null.
         'wakeEndSample': ?wakeEndSample,

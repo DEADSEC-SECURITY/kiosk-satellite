@@ -58,6 +58,11 @@ class JsApiManager extends Manager {
     'releaseWakeWord': 'releaseWakeWord',
     'setStopWordActive': 'setStopWordActive',
     'getWakeWordState': 'getWakeWordState',
+    'configureWakeWordRecording': 'configureWakeWordRecording',
+    'listWakeWordRecordings': 'listWakeWordRecordings',
+    'getWakeWordRecording': 'getWakeWordRecording',
+    'ackWakeWordRecording': 'ackWakeWordRecording',
+    'captureWakeWordRecording': 'captureWakeWordRecording',
     'startAudioStream': 'startAudioStream',
     'stopAudioStream': 'stopAudioStream',
     'pipelineRun': 'pipelineRun',
@@ -259,6 +264,10 @@ class JsApiManager extends Manager {
     // Queries resolve to their data; commands resolve to true/false. Never
     // reject — matching the defensive style of the VS kiosk wrapper.
     if (!result.ok) return result.data == null ? false : null;
+    if (method == 'getWakeWordRecording' ||
+        method == 'captureWakeWordRecording') {
+      return result.data;
+    }
     return result.data ?? true;
   }
 

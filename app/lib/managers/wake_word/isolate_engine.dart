@@ -8,6 +8,7 @@ import '../../core/logging.dart';
 import '../../core/permissions.dart';
 import '../audio/mic_hub.dart';
 import 'engine.dart';
+import 'recordings.dart';
 import 'wake_msg.dart';
 
 export 'wake_msg.dart' show WakeMsg;
@@ -176,6 +177,33 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
   bool get wakeEndIsAligned => false;
 
   final _preRoll = PreRollBuffer();
+  WakeRecordingBuffer? _recording;
+  void Function(WakeRecordingCapture)? _onRecording;
+
+  @override
+  bool get supportsWakeWordRecording => true;
+
+  @override
+  void configureWakeWordRecording({
+    required bool enabled,
+    void Function(WakeRecordingCapture)? onCapture,
+  }) {
+    _onRecording = enabled ? onCapture : null;
+    if (enabled) {
+      _recording ??= WakeRecordingBuffer();
+    } else {
+      _recording?.clear();
+      _recording = null;
+    }
+  }
+
+  @override
+  WakeRecordingCapture? captureWakeWordRecording() {
+    if (!_running || _detectionPaused || _injecting || _testerOn) return null;
+    return _recording?.snapshot(
+      metadata: {'engine': engineType.name, 'capture_kind': 'missed'},
+    );
+  }
 
   bool _running = false;
 
@@ -216,6 +244,7 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
 
   @override
   void setTelemetry(bool enabled, {bool tester = false}) {
+    if (_testerOn != (enabled && tester)) _recording?.clear();
     _telemetryOn = enabled;
     _testerOn = enabled && tester;
     _isolatePort?.send({
@@ -353,6 +382,7 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
     if (!_running) return null;
     final startMs = _preRoll.absSamples ~/ 16;
     _injecting = true;
+    _recording?.clear();
     try {
       // 80 ms chunks, the size the mic delivers.
       const chunkBytes = 1280 * 2;
@@ -374,6 +404,12 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
   }
 
   void _feed(Uint8List bytes) {
+    // Copy before native inference/Assist can reuse or trim the input. Only
+    // active listening is eligible; turns, playback and diagnostic injection
+    // must not silently become wake-word training examples.
+    if (!_detectionPaused && !_injecting && !_testerOn) {
+      _recording?.add(bytes, _preRoll.absSamples);
+    }
     // Detection (skipped while a voice turn owns the audio). The stop word is
     // the exception: it only matters *during* a turn, so an armed stop
     // classifier keeps the audio flowing even with wake detection paused.
@@ -387,6 +423,7 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
   Future<void> pauseDetection() async {
     if (_detectionPaused) return;
     _detectionPaused = true;
+    _recording?.clear();
     log.info(tag, 'detection paused (mic stays open)');
   }
 
@@ -399,6 +436,7 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
     _isolatePort
         ?.send({'type': WakeMsg.resume, 'absSample': _preRoll.absSamples});
     _wakeEndSample = null;
+    _recording?.clear();
     _detectionPaused = false;
     log.info(tag, 'detection re-armed');
   }
@@ -425,7 +463,7 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
         tag,
         'audio stream started (${(samples / 16).round()}ms pre-roll'
         '${wakeEnd == null ? '' : ', trimmed to '
-            '${wakeEndIsAligned ? 'wake end' : 'detection'}'})');
+                '${wakeEndIsAligned ? 'wake end' : 'detection'}'})');
   }
 
   @override
@@ -516,6 +554,21 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
       await _onStopDetection?.call();
       return;
     }
+    if (_running && !_detectionPaused && !_testerOn && !_injecting) {
+      final capture = _recording?.snapshot(
+        endSample: msg['detectionSample'] as int?,
+        metadata: {
+          'engine': engineType.name,
+          'model': msg['id'] as String? ?? '',
+          'capture_kind': 'wake',
+          if (msg['score'] case final num score when score.isFinite)
+            'score': score,
+          if (msg['threshold'] case final num threshold when threshold.isFinite)
+            'threshold': threshold,
+        },
+      );
+      if (capture != null) _onRecording?.call(capture);
+    }
     final ref = WakeWordModelRef(
       id: msg['id'] as String? ?? '',
       wakeWord: msg['wakeWord'] as String? ?? '',
@@ -567,6 +620,7 @@ abstract class IsolateWakeEngine extends WakeWordEngine {
     _detectionPaused = false;
     _wakeEndSample = null;
     _preRoll.reset();
+    _recording?.clear(newSession: true);
     // The page's audio stream too: left set, the next run would base64 every
     // mic chunk into the bridge for a listener that died with the old page.
     _onAudioChunk = null;

@@ -568,6 +568,19 @@ class WakeWordDetected extends AppEvent {
   Map<String, Object?> toJson() => {'model': model, 'phrase': phrase};
 }
 
+/// Payload intentionally contains no microphone data. The opted-in page pulls
+/// the bounded clip by ID, then acknowledges only after Home Assistant saves.
+class WakeWordRecordingReady extends AppEvent {
+  const WakeWordRecordingReady(this.captureId);
+  final String captureId;
+
+  @override
+  String get wireName => 'wakeword-recording';
+
+  @override
+  Map<String, Object?> toJson() => {'capture_id': captureId};
+}
+
 /// A chunk of captured mic audio for the page (base64 PCM16 LE, 16 kHz mono).
 ///
 /// Internal-only (no wireName): the JS API bridge subscribes to it directly

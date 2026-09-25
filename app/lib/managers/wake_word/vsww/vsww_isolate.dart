@@ -435,6 +435,8 @@ class _IsolateWorker {
           'type': WakeMsg.detection,
           'id': k.id,
           'wakeWord': k.wakeWord,
+          'detectionSample': _absSamples,
+          'score': combined.matchedConfidence,
           'wakeEndSample': wakeEnd,
         });
         return;

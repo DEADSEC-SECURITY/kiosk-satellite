@@ -94,6 +94,53 @@ Wake word configuration is strictly **inherited from Voice Satellite**. It is ne
 
 The `status` property will strictly be one of the following distinct states: `disabled`, `waiting`, `muted`, `browser`, `released`, `micBlocked`, `micDeclined`, `micLost`, `modelsUnavailable`, `failed`, `unavailable`, `listening`, or `suspended`. There is deliberately no catch all status. The `statusLabel` provides the human readable sentence to display. Never derive logic from `status` that the label already explicitly states.
 
+### Wake-word recordings (opt-in)
+
+The recording trial adds these methods to `window.kioskSatellite`. Older app
+builds do not expose them; callers must feature-detect each method. Recording is
+off by default and never opens a second microphone or takes over Assist audio.
+
+| Method | Returns | Description |
+|---|---|---|
+| `configureWakeWordRecording({enabled, clear_pending?, owner?})` | `{available, enabled}` | Enables an independent five-second PCM history while native wake detection is actively listening. Disabling always clears this history. By default it also deletes pending clips. Use `clear_pending: false` only for temporary suspension/navigation when pending uploads must survive; an explicit user-selected Off should keep the default purge. `owner` is the nonempty, at-most-512-character `${location.origin}\|${entity_id}` identity; changing it clears all history and pending clips before rebinding. |
+| `listWakeWordRecordings()` | `{items, dropped}` | Lists pending `{capture_id, ...metadata}` rows. No audio crosses the bridge in this call. `dropped` counts new clips discarded when the 32-clip queue is full; resets on purge. |
+| `getWakeWordRecording({capture_id})` | `{capture_id, audio_base64, metadata}` or `null` | Retrieves a base64-encoded 16 kHz mono PCM16 WAV without removing it. Repeated reads are identical. |
+| `ackWakeWordRecording({capture_id})` | `boolean` | Deletes a pending clip. Call only after Home Assistant confirms its persistent save. Idempotent: a valid UUID already removed still returns `true`, so a lost reply can safely be retried. Malformed IDs return `false`. |
+| `captureWakeWordRecording()` | `{capture_id}` or `null` | Snapshots current active listening history for a manually reported missed wake. Returns `null` when disabled, suspended, empty/stale, or full. This records no acoustic label: a later review must establish whether the wake word is present. |
+
+`kiosksatellite:wakeword-recording` carries `{capture_id}` once a clip is queued.
+The event may arrive before the regular wake event; save asynchronously and
+delay feedback until the resulting interaction has finished. Poll the list on
+reconnect because a suspended/replaced WebView can miss events. Collection and
+the queue live in the native process, so a suspended WebView does not own their
+lifetime. **Pending clips are memory-only:** force-stop, crash or process death
+loses them. This first version has no persistent native outbox.
+
+Clips are copied from inference input before Assist's wake-word trimming, and
+end at the detector's sample position. There is no post-trigger tail or chime.
+They are at most five seconds; shorter history after enable/resume/restart, a
+sample-clock gap, or a capture interruption is marked `discontinuity: true`.
+Turns, playback pauses, stop-word detections, and injected tester audio do not
+become wake clips. A manual snapshot is unavailable once incoming audio is over
+one second stale.
+
+Metadata includes `origin`, `engine`, `model` when known, `capture_kind`
+(`wake`/`missed`), a recording `session_id`, UTC `captured_at`, `sample_rate`,
+`pre_seconds`, clip-relative `trigger_sample` (the clip end), `discontinuity`,
+capture format `version`, and `microphone_settings`. Scores are engine-specific:
+openWakeWord probability, microWakeWord window mean, or vsWakeWord matched
+confidence. Effective `threshold` is included for microWakeWord/openWakeWord;
+unknown thresholds and model hashes are omitted. Native queues do not attach a
+Home Assistant entity ID into the audio metadata. Configure the `owner` identity
+before listing/uploading to prevent a changed server or satellite inheriting
+pending audio. A same-owner reconnect retains clips; an omitted owner keeps the
+previous association for temporary suspension before the new page has its ID.
+
+Home Assistant controls reach native recording through the dashboard page. If
+that WebView is suspended or disconnected, a remote Off change cannot stop native
+collection until it resumes and receives the policy. Use the tablet's microphone
+mute/stop controls when an immediate local stop is needed.
+
 ### Sound
 
 This handles the output half of the audio handoff. The web page passes a URL over, and the app plays it natively on the user's selected speaker (Settings > Screen & Audio > Speaker). This bypasses the strict WebView autoplay gate. Because the app fetches the URL through its own HTTP stack, a self signed Home Assistant certificate accepted by the user works perfectly here. Voice Satellite utilizes this for chimes when running in Kiosk Satellite; browser audio acts as the automatic fallback.

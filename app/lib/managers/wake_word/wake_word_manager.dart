@@ -14,6 +14,7 @@ import '../settings/settings_manager.dart';
 import 'background_listening.dart';
 import 'engine.dart';
 import 'model_cache.dart';
+import 'recordings.dart';
 import 'system_permissions.dart';
 import 'mww/mww_engine.dart';
 import 'mww/mww_probe.dart';
@@ -58,6 +59,137 @@ class WakeWordManager extends Manager
   }) : _engines = {...?engines};
 
   final SettingsManager _settings;
+  final _recordings = WakeRecordingQueue();
+  bool _recordingsEnabled = false;
+  String? _recordingsOwner;
+
+  void _bindRecording(WakeWordEngine engine) {
+    engine.configureWakeWordRecording(
+      enabled: _recordingsEnabled,
+      onCapture: _queueRecording,
+    );
+  }
+
+  String? _queueRecording(WakeRecordingCapture capture) {
+    if (!_recordingsEnabled) return null;
+    final id = _recordings.add(
+      WakeRecordingCapture(capture.pcm, {
+        ...capture.metadata,
+        'microphone_settings': {
+          'device': _settings.get(defs.audioMicDevice),
+          'audio_source': _settings.get(defs.micAudioSource),
+          'echo_cancellation': _settings.get(defs.micEchoCancellation),
+          'gain_db': _settings.get(defs.micGainDb),
+          'agc': _settings.get(defs.micAgc),
+          'noise_suppression': _settings.get(defs.micNoiseSuppression),
+          'channel': _settings.get(defs.micChannel),
+          'capture_format': _settings.get(defs.micCaptureFormat),
+        },
+      }),
+    );
+    if (id != null) bus.publish(WakeWordRecordingReady(id));
+    return id;
+  }
+
+  void _registerRecordingCommands() {
+    commands
+      ..register(
+        Command(
+          name: 'configureWakeWordRecording',
+          description:
+              'Opt in to five-second wake clips. Off clears unsaved audio.',
+          handler: (p) async {
+            if (p['enabled'] is! bool) {
+              return const CommandResult.fail('enabled must be a boolean');
+            }
+            if (p.containsKey('clear_pending') && p['clear_pending'] is! bool) {
+              return const CommandResult.fail(
+                'clear_pending must be a boolean',
+              );
+            }
+            final owner = p['owner'];
+            if (p.containsKey('owner') &&
+                (owner is! String ||
+                    owner.trim().isEmpty ||
+                    owner.length > 512)) {
+              return const CommandResult.fail(
+                'owner must be a nonempty string up to 512 characters',
+              );
+            }
+            if (owner is String && owner != _recordingsOwner) {
+              // A page can reload onto a different HA server or satellite.
+              // Do not upload the previous owner's clips there.
+              _recordings.clear();
+              for (final engine in _engines.values) {
+                engine.configureWakeWordRecording(enabled: false);
+              }
+              _recordingsOwner = owner;
+            }
+            _recordingsEnabled = p['enabled'] == true;
+            if (!_recordingsEnabled && p['clear_pending'] != false) {
+              _recordings.clear();
+            }
+            for (final engine in _engines.values) {
+              _bindRecording(engine);
+            }
+            // Access after rebinding also handles an engine first created here.
+            final engine = _engine;
+            _bindRecording(engine);
+            return CommandResult.ok({
+              'available': engine.supportsWakeWordRecording,
+              'enabled': _recordingsEnabled,
+            });
+          },
+        ),
+      )
+      ..register(
+        Command(
+          name: 'listWakeWordRecordings',
+          description:
+              'List pending clips and the number dropped by the queue cap.',
+          quiet: true,
+          handler: (_) async => CommandResult.ok(_recordings.list()),
+        ),
+      )
+      ..register(
+        Command(
+          name: 'getWakeWordRecording',
+          description: 'Read a pending PCM16 WAV without removing it.',
+          quiet: true,
+          handler: (p) async => CommandResult.ok(
+            p['capture_id'] is String
+                ? _recordings.get(p['capture_id'] as String)
+                : null,
+          ),
+        ),
+      )
+      ..register(
+        Command(
+          name: 'ackWakeWordRecording',
+          description: 'Remove a clip only after Home Assistant persisted it.',
+          quiet: true,
+          handler: (p) async => CommandResult.ok(
+            p['capture_id'] is String &&
+                _recordings.ack(p['capture_id'] as String),
+          ),
+        ),
+      )
+      ..register(
+        Command(
+          name: 'captureWakeWordRecording',
+          description:
+              'Save recent active listening audio as an unlabeled missed wake.',
+          handler: (_) async {
+            if (!_recordingsEnabled || !listening) {
+              return const CommandResult.ok(null);
+            }
+            final capture = _engine.captureWakeWordRecording();
+            final id = capture == null ? null : _queueRecording(capture);
+            return CommandResult.ok(id == null ? null : {'capture_id': id});
+          },
+        ),
+      );
+  }
 
   @override
   String get name => 'wake_word';
@@ -659,6 +791,7 @@ class WakeWordManager extends Manager
 
   @override
   Future<void> init() async {
+    _registerRecordingCommands();
     WidgetsBinding.instance.addObserver(this);
     _backgroundInteractionSub = bus.on<VoiceInteractionChanged>().listen(
       _onBackgroundInteraction,
@@ -1360,6 +1493,7 @@ class WakeWordManager extends Manager
       _runningEngine = null;
     }
     if (shouldRun && !_engine.running) {
+      _bindRecording(_engine);
       await _engine.start(
         config: _config!,
         onDetection: _onDetection,
@@ -1550,6 +1684,11 @@ class WakeWordManager extends Manager
     await _remoteObservers?.cancel();
     _stopMicLevelWatch();
     _resumeTimer?.cancel();
+    _recordingsEnabled = false;
+    _recordings.clear();
+    for (final engine in _engines.values) {
+      _bindRecording(engine);
+    }
     await _engine.stop();
   }
 }

@@ -89,6 +89,16 @@ String buildKioskSatelliteScript({
     },
     getWakeWordState: function () { return call('getWakeWordState'); },
 
+    // Opt-in inference-input clips, independent of the Assist audio stream.
+    // Only acknowledge an ID once Home Assistant has persisted its WAV.
+    configureWakeWordRecording: function (opts) {
+      return call('configureWakeWordRecording', opts);
+    },
+    listWakeWordRecordings: function () { return call('listWakeWordRecordings'); },
+    getWakeWordRecording: function (opts) { return call('getWakeWordRecording', opts); },
+    ackWakeWordRecording: function (opts) { return call('ackWakeWordRecording', opts); },
+    captureWakeWordRecording: function () { return call('captureWakeWordRecording'); },
+
     // Stop word: armed by the page only while something interruptible is
     // playing. Fires as a 'kiosksatellite:stopword' event.
     setStopWordActive: function (active) { return call('setStopWordActive', { active: !!active }); },

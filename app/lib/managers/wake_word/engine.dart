@@ -12,6 +12,8 @@ library;
 
 import 'dart:typed_data';
 
+import 'recordings.dart';
+
 typedef DetectionCallback = Future<void> Function(WakeWordModelRef model);
 typedef StopDetectionCallback = Future<void> Function();
 
@@ -265,6 +267,17 @@ class WakeWordConfig {
 }
 
 abstract class WakeWordEngine {
+  bool get supportsWakeWordRecording => false;
+
+  /// Independent of the single-consumer Assist audio stream. Disabled by
+  /// default; a false configuration clears the inference-input history.
+  void configureWakeWordRecording({
+    required bool enabled,
+    void Function(WakeRecordingCapture)? onCapture,
+  }) {}
+
+  WakeRecordingCapture? captureWakeWordRecording() => null;
+
   /// Engines this implementation can run natively. The manager reports
   /// `available: false` for configs outside this set so Voice Satellite
   /// keeps using its browser engine instead.

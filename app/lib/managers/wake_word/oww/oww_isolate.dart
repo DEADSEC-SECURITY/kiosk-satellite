@@ -256,6 +256,9 @@ class _OwwWorker {
         'type': WakeMsg.detection,
         'id': k.id,
         'wakeWord': k.wakeWord,
+        'detectionSample': _absSamples,
+        'score': probability,
+        'threshold': k.gate.cutoff,
         // A window classifier: it knows the wake word happened recently, not
         // where it ended, so the stream starts at the detection instant.
         'wakeEndSample': _absSamples,
