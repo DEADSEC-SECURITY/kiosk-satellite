@@ -6,11 +6,6 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Opt-in contributor trial; leaves the installed official app and its data
-// untouched. Normal builds keep the upstream application ID and label.
-val wakeRecordingTrial = providers.gradleProperty("wakeRecordingTrial").orNull == "true" ||
-    System.getenv("KIOSK_RECORDING_TRIAL") == "true"
-
 // The release signing identity. Local builds read android/key.properties
 // (git-ignored); CI provides the same four values through the environment.
 // Neither present means a contributor build: it falls back to the debug
@@ -59,12 +54,6 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "me.jxl.kiosk_satellite"
-        if (wakeRecordingTrial) {
-            applicationIdSuffix = ".recordings"
-            versionNameSuffix = "-recordings-trial"
-        }
-        manifestPlaceholders["kioskLabel"] =
-            if (wakeRecordingTrial) "Kiosk Recordings Trial" else "Kiosk Satellite"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // onnxruntime AAR requires API 24+; also fine for kiosk tablets.

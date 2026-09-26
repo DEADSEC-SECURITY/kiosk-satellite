@@ -116,7 +116,7 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions"/>
     <application
-        android:label="${kioskLabel}"
+        android:label="Kiosk Satellite"
         android:name=".KioskApplication"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/tv_banner"
@@ -148,7 +148,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:taskAffinity="${applicationId}"
+            android:taskAffinity="me.jxl.kiosk_satellite"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -303,7 +303,7 @@
         <!-- The bootstrap script and secret are readable only by the ADB shell. -->
         <provider
             android:name=".UpdateHelperProvider"
-            android:authorities="${applicationId}.update-helper"
+            android:authorities="me.jxl.kiosk_satellite.update-helper"
             android:exported="true"/>
     </application>
     <!-- Required to query activities that can process text, see:
